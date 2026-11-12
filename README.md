@@ -199,3 +199,7 @@ zed-config/                 tasks.json et keymap.json à copier dans ~/.config/z
 
 - Grammaire : [Scalamando/tree-sitter-bruno](https://github.com/Scalamando/tree-sitter-bruno) (MIT)
 - [Bruno](https://github.com/usebruno/bruno) et son CLI `@usebruno/cli`
+
+## Licence
+
+[MIT](LICENSE)
