@@ -16,6 +16,7 @@ Formats supportés :
 - **Tâches Zed** : lancer la requête, le dossier, la collection entière, choisir l'environnement
 - **Réponse lisible dans le terminal Zed** : méthode, URL, statut coloré, temps, taille, body JSON formaté, plus les résultats des tests et assertions de `bru`
 - **Environnement mémorisé par collection** (`local`, `staging`, `prod`…)
+- **Vue graphique de la réponse** dans Zed via l'aperçu Markdown : statut, temps, body, tests, headers, query params
 
 Exemple de sortie :
 
@@ -87,7 +88,8 @@ Ajoute le contenu de [`zed-config/keymap.json`](zed-config/keymap.json) dans `~/
     "ctrl-alt-r": ["task::Spawn", { "task_name": "Bruno: run request" }],
     "ctrl-alt-f": ["task::Spawn", { "task_name": "Bruno: run folder" }],
     "ctrl-alt-c": ["task::Spawn", { "task_name": "Bruno: run collection" }],
-    "ctrl-alt-e": ["task::Spawn", { "task_name": "Bruno: choose environment" }]
+    "ctrl-alt-e": ["task::Spawn", { "task_name": "Bruno: choose environment" }],
+    "ctrl-alt-v": ["task::Spawn", { "task_name": "Bruno: open response view" }]
   }
 }
 ```
@@ -102,8 +104,22 @@ Ouvre un fichier de requête dans une collection Bruno, puis :
 | Lancer toutes les requêtes du dossier (récursif) | `ctrl-alt-f` | `Bruno: run folder` |
 | Lancer toute la collection | `ctrl-alt-c` | `Bruno: run collection` |
 | Choisir l'environnement | `ctrl-alt-e` | `Bruno: choose environment` |
+| Ouvrir la vue de la réponse | `ctrl-alt-v` | `Bruno: open response view` |
 
 `task: rerun` relance la dernière tâche.
+
+### Vue de la réponse (aperçu Markdown)
+
+Après chaque exécution, `bruno-zed` écrit `~/.local/state/bruno-zed/response.md` :
+
+- un tableau récapitulatif quand plusieurs requêtes ont tourné (dossier, collection)
+- pour chaque requête : statut, temps, taille, body de la réponse formaté (JSON, HTML, XML…), tests et assertions, headers de réponse, puis la requête envoyée (query params, headers, body)
+
+Au premier run, le fichier s'ouvre dans Zed. Lance une fois **`markdown: open preview to the side`** (`ctrl-shift-p`) : l'aperçu reste ouvert et se met à jour tout seul à chaque nouvelle exécution, puisque le fichier est réécrit au même endroit.
+
+Si tu fermes l'onglet, `ctrl-alt-v` (`Bruno: open response view`) le rouvre.
+
+Les extensions Zed n'ont pas d'API de webview ni de panneau personnalisé. Cet aperçu Markdown est donc en lecture seule : la requête s'édite dans le fichier `.bru` ou `.yml`.
 
 ### Détection de la collection
 
@@ -130,6 +146,7 @@ bruno-zed run <fichier>          # une requête
 bruno-zed folder <chemin>        # tout le dossier (récursif)
 bruno-zed collection <chemin>    # toute la collection contenant <chemin>
 bruno-zed env <chemin>           # choisir l'environnement de la collection
+bruno-zed view                   # ouvrir la vue Markdown de la dernière réponse dans Zed
 bruno-zed last                   # réafficher la dernière réponse (JSON complet)
 ```
 
@@ -145,7 +162,9 @@ bruno-zed run users/get.bru -- --insecure --env-var token=abc
 |---|---|
 | `BRUNO_ENV=<nom>` | force l'environnement (`none` = aucun) |
 | `BRUNO_ZED_HEADERS=1` | affiche aussi les headers de réponse |
-| `BRUNO_ZED_BODY=0` | n'affiche pas le body |
+| `BRUNO_ZED_BODY=0` | n'affiche pas le body dans le terminal |
+| `BRUNO_ZED_VIEW=0` | ne génère pas la vue Markdown |
+| `BRUNO_ZED_OPEN=first\|always\|never` | quand ouvrir la vue dans Zed (défaut `first` : seulement si elle n'existe pas encore) |
 
 Pour les appliquer depuis Zed, ajoute-les au champ `env` d'une tâche :
 
@@ -160,6 +179,7 @@ Pour les appliquer depuis Zed, ajoute-les au champ `env` d'une tâche :
 
 ### Fichiers générés
 
+- `~/.local/state/bruno-zed/response.md` : vue Markdown de la dernière exécution
 - `~/.local/state/bruno-zed/last-response.json` : dernière requête et réponse complètes (headers, body)
 - `~/.local/state/bruno-zed/last-report.json` : rapport JSON brut de `bru`
 - `~/.local/state/bruno-zed/envs.json` : environnement choisi pour chaque collection
@@ -185,6 +205,7 @@ zed-config/                 tasks.json et keymap.json à copier dans ~/.config/z
 - **Pas de ▶ pour les `.yml`** : une extension Zed ne peut pas ajouter de runnables au langage YAML intégré. Utilise `ctrl-alt-r` ou `task: spawn`.
 - **Pas de coloration propre aux `.yml` Bruno** : ils gardent la coloration YAML standard de Zed.
 - La grammaire `tree-sitter-bruno` date de 2024 : certains blocs récents (`settings {}`, `body:ws`, `auth:oauth2` avancé…) ne sont pas colorés. L'exécution n'est pas affectée.
+- Pas d'interface graphique éditable comme l'app Bruno : Zed n'offre pas de webview aux extensions. La vue de la réponse est un aperçu Markdown en lecture seule.
 - Le choix d'environnement se fait dans le terminal Zed (saisie d'un numéro), car les tâches Zed ne peuvent pas ouvrir de menu natif.
 
 ## Dépannage

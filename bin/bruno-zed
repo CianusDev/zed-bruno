@@ -6,6 +6,7 @@
 //   bruno-zed folder <path>       run every request of the folder (recursive)
 //   bruno-zed collection <path>   run the whole collection containing <path>
 //   bruno-zed env <path>          choose the environment used for this collection
+//   bruno-zed view                open the Markdown response view in Zed
 //   bruno-zed last                print the last response again
 //
 // Environment selection (first match wins):
@@ -27,6 +28,7 @@ const STATE_DIR = path.join(process.env.XDG_STATE_HOME || path.join(os.homedir()
 const STATE_FILE = path.join(STATE_DIR, 'envs.json');
 const LAST_RESPONSE = path.join(STATE_DIR, 'last-response.json');
 const LAST_REPORT = path.join(STATE_DIR, 'last-report.json');
+const RESPONSE_MD = path.join(STATE_DIR, 'response.md');
 
 const tty = process.stdout.isTTY;
 const c = (code) => (s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : String(s));
@@ -95,7 +97,146 @@ function prettyBody(data) {
   }
 }
 
-function printResponses(reportFile) {
+// ---------- Markdown response view ----------
+
+const cell = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+const MAX_BODY = 200 * 1024;
+
+function fmtSize(n) {
+  if (typeof n !== 'number') return '?';
+  if (n < 1024) return `${n} o`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`;
+  return `${(n / 1024 / 1024).toFixed(1)} Mo`;
+}
+
+function bodyLang(headers) {
+  const ct = Object.entries(headers || {}).find(([k]) => k.toLowerCase() === 'content-type')?.[1] || '';
+  if (/json/i.test(ct)) return 'json';
+  if (/html/i.test(ct)) return 'html';
+  if (/xml/i.test(ct)) return 'xml';
+  if (/javascript/i.test(ct)) return 'javascript';
+  return 'text';
+}
+
+function fence(text, lang) {
+  let s = String(text);
+  let note = '';
+  if (s.length > MAX_BODY) {
+    note = `\n_Body tronqué à ${fmtSize(MAX_BODY)} — complet dans \`${LAST_RESPONSE}\`._\n`;
+    s = s.slice(0, MAX_BODY);
+  }
+  const ticks = s.includes('```') ? '````' : '```';
+  return `${ticks}${lang}\n${s}\n${ticks}\n${note}`;
+}
+
+function rawBody(data) {
+  if (typeof data === 'object') return JSON.stringify(data, null, 2);
+  try {
+    return JSON.stringify(JSON.parse(data), null, 2);
+  } catch {
+    return String(data);
+  }
+}
+
+function table(head, rows) {
+  if (!rows.length) return '';
+  return `| ${head.join(' | ')} |\n|${head.map(() => '---').join('|')}|\n${rows.map((r) => `| ${r.map(cell).join(' | ')} |`).join('\n')}\n`;
+}
+
+function statusIcon(r) {
+  const s = r.response?.status;
+  if (r.error || r.status === 'error' || typeof s !== 'number') return '❌';
+  if (r.status === 'fail' || s >= 400) return '❌';
+  if (s >= 300) return '↪️';
+  return '✅';
+}
+
+function requestSection(r) {
+  const req = r.request || {};
+  const res = r.response || {};
+  const out = [];
+  const status = typeof res.status === 'number' ? `${res.status} ${res.statusText || ''}`.trim() : 'Erreur';
+  out.push(`## ${statusIcon(r)} ${req.method || ''} ${r.name || r.path}`);
+  out.push(`\`${req.method || ''} ${req.url || ''}\``);
+  out.push(table(['Statut', 'Temps', 'Taille', 'Fichier'], [[`**${status}**`, `${res.responseTime ?? '?'} ms`, fmtSize(res.size), r.path || '']]));
+  if (r.error) out.push(`> **Erreur :** ${cell(r.error)}\n`);
+
+  out.push('### Réponse');
+  if (res.data !== undefined && res.data !== null && res.data !== '') {
+    out.push(fence(rawBody(res.data), bodyLang(res.headers)));
+  } else {
+    out.push('_Body vide._\n');
+  }
+
+  const checks = [
+    ...(r.assertionResults || []).map((a) => [a.status === 'pass' ? '✅' : '❌', 'assert', `${a.lhsExpr} ${a.rhsExpr}`, a.error || '']),
+    ...[...(r.preRequestTestResults || []), ...(r.testResults || []), ...(r.postResponseTestResults || [])].map((t) => [
+      t.status === 'pass' ? '✅' : '❌',
+      'test',
+      t.description,
+      t.error || '',
+    ]),
+  ];
+  if (checks.length) {
+    out.push('### Tests et assertions');
+    out.push(table(['', 'Type', 'Description', 'Erreur'], checks));
+  }
+
+  if (res.headers && Object.keys(res.headers).length) {
+    out.push('### Headers de réponse');
+    out.push(table(['Header', 'Valeur'], Object.entries(res.headers)));
+  }
+
+  out.push('### Requête envoyée');
+  try {
+    const u = new URL(req.url);
+    const params = [...u.searchParams.entries()];
+    if (params.length) {
+      out.push('**Query params**\n');
+      out.push(table(['Nom', 'Valeur'], params));
+    }
+  } catch {}
+  const reqHeaders = Object.entries(req.headers || {}).filter(([, v]) => v !== null && v !== undefined);
+  if (reqHeaders.length) {
+    out.push('**Headers**\n');
+    out.push(table(['Header', 'Valeur'], reqHeaders));
+  }
+  if (req.data !== undefined && req.data !== null && req.data !== '') {
+    out.push('**Body**\n');
+    out.push(fence(rawBody(req.data), bodyLang(req.headers)));
+  }
+  return out.join('\n\n');
+}
+
+function writeMarkdown(results, ctx) {
+  const now = new Date().toLocaleString('fr-FR');
+  const parts = [];
+  const title = results.length === 1 ? results[0].name || results[0].path : `${results.length} requêtes`;
+  parts.push(`# Bruno · ${title}`);
+  parts.push(`_${now} · environnement \`${ctx.env || 'défaut de la collection'}\` · ${ctx.root}_\n`);
+  if (results.length > 1) {
+    parts.push(
+      table(
+        ['', 'Requête', 'Statut', 'Temps'],
+        results.map((r) => [
+          statusIcon(r),
+          `${r.request?.method || ''} ${r.name || r.path}`,
+          typeof r.response?.status === 'number' ? r.response.status : 'Erreur',
+          `${r.response?.responseTime ?? '?'} ms`,
+        ]),
+      ),
+    );
+  }
+  parts.push(results.map(requestSection).join('\n\n---\n\n'));
+  fs.writeFileSync(RESPONSE_MD, parts.join('\n\n') + '\n');
+}
+
+function openInZed(file) {
+  const r = spawnSync('zed', ['-a', file], { stdio: 'ignore' });
+  if (r.error) console.log(dim(`(zed CLI introuvable : ouvre ${file} à la main)`));
+}
+
+function printResponses(reportFile, ctx = {}) {
   let report;
   try {
     report = JSON.parse(fs.readFileSync(reportFile, 'utf8'));
@@ -103,6 +244,13 @@ function printResponses(reportFile) {
     return;
   }
   const results = (Array.isArray(report) ? report : [report]).flatMap((it) => it.results || []);
+  if (results.length && process.env.BRUNO_ZED_VIEW !== '0') {
+    const existed = fs.existsSync(RESPONSE_MD);
+    writeMarkdown(results, ctx);
+    const mode = process.env.BRUNO_ZED_OPEN || 'first';
+    if (mode === 'always' || (mode === 'first' && !existed)) openInZed(RESPONSE_MD);
+  }
+  if (process.env.BRUNO_ZED_BODY === '0') return;
   const showHeaders = process.env.BRUNO_ZED_HEADERS === '1';
   let last = null;
 
@@ -156,7 +304,7 @@ function runBru(target, { recursive }, extra) {
     if (r.error.code === 'ENOENT') die('`bru` not found. Install it with: npm i -g @usebruno/cli');
     die(r.error.message);
   }
-  if (process.env.BRUNO_ZED_BODY !== '0') printResponses(LAST_REPORT);
+  printResponses(LAST_REPORT, { env, root });
   process.exit(r.status ?? 1);
 }
 
@@ -215,12 +363,17 @@ async function main() {
     }
     case 'env':
       return chooseEnv(target || process.cwd());
+    case 'view':
+      if (!fs.existsSync(RESPONSE_MD)) die('No response yet. Run a request first.');
+      openInZed(RESPONSE_MD);
+      console.log(`Opened ${RESPONSE_MD}\nZed: ctrl-shift-p → "markdown: open preview to the side"`);
+      return;
     case 'last':
       if (!fs.existsSync(LAST_RESPONSE)) die('No response yet.');
       console.log(fs.readFileSync(LAST_RESPONSE, 'utf8'));
       return;
     default:
-      console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 16).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+      console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 17).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
       process.exit(cmd ? 1 : 0);
   }
 }

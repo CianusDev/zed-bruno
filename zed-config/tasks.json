@@ -39,5 +39,13 @@
     "env": {
       "BRU_FILE": "$ZED_FILE"
     }
+  },
+  {
+    "label": "Bruno: open response view",
+    "command": "bruno-zed view",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "never",
+    "hide": "on_success"
   }
 ]
