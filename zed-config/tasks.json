@@ -1,35 +1,43 @@
 [
   {
     "label": "Bruno: run request",
-    "command": "bruno-zed",
-    "args": ["run", "$ZED_FILE"],
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always"
-  },
-  {
-    "label": "Bruno: run folder",
-    "command": "bruno-zed",
-    "args": ["folder", "$ZED_FILE"],
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always"
-  },
-  {
-    "label": "Bruno: run collection",
-    "command": "bruno-zed",
-    "args": ["collection", "$ZED_FILE"],
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always"
-  },
-  {
-    "label": "Bruno: choose environment",
-    "command": "bruno-zed",
-    "args": ["env", "$ZED_FILE"],
+    "command": "bruno-zed run \"$BRU_FILE\"",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",
-    "hide": "on_success"
+    "env": {
+      "BRU_FILE": "$ZED_FILE"
+    }
+  },
+  {
+    "label": "Bruno: run folder",
+    "command": "bruno-zed folder \"$BRU_FILE\"",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "env": {
+      "BRU_FILE": "$ZED_FILE"
+    }
+  },
+  {
+    "label": "Bruno: run collection",
+    "command": "bruno-zed collection \"$BRU_FILE\"",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "env": {
+      "BRU_FILE": "$ZED_FILE"
+    }
+  },
+  {
+    "label": "Bruno: choose environment",
+    "command": "bruno-zed env \"$BRU_FILE\"",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success",
+    "env": {
+      "BRU_FILE": "$ZED_FILE"
+    }
   }
 ]

@@ -1,11 +1,15 @@
 [
   {
     "label": "Bruno ▶ $ZED_FILENAME",
-    "command": "bruno-zed",
-    "args": ["run", "$ZED_FILE"],
-    "tags": ["bruno-request"],
+    "command": "bruno-zed run \"$BRU_FILE\"",
+    "tags": [
+      "bruno-request"
+    ],
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
-    "reveal": "always"
+    "reveal": "always",
+    "env": {
+      "BRU_FILE": "$ZED_FILE"
+    }
   }
 ]
