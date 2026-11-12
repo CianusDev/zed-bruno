@@ -1,0 +1,11 @@
+[
+  {
+    "context": "Editor && (extension == bru || extension == yml || extension == yaml)",
+    "bindings": {
+      "ctrl-alt-r": ["task::Spawn", { "task_name": "Bruno: run request" }],
+      "ctrl-alt-f": ["task::Spawn", { "task_name": "Bruno: run folder" }],
+      "ctrl-alt-c": ["task::Spawn", { "task_name": "Bruno: run collection" }],
+      "ctrl-alt-e": ["task::Spawn", { "task_name": "Bruno: choose environment" }]
+    }
+  }
+]

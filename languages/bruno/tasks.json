@@ -1,0 +1,11 @@
+[
+  {
+    "label": "Bruno ▶ $ZED_FILENAME",
+    "command": "bruno-zed",
+    "args": ["run", "$ZED_FILE"],
+    "tags": ["bruno-request"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  }
+]

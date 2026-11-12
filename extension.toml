@@ -1,0 +1,11 @@
+id = "bruno-runner"
+name = "Bruno Runner"
+version = "0.1.0"
+schema_version = 1
+description = "Bruno (.bru) syntax highlighting + run requests with the Bruno CLI (bru) from the gutter or tasks."
+authors = ["CianusDev"]
+repository = "https://github.com/CianusDev/zed-bruno"
+
+[grammars.bruno]
+repository = "https://github.com/Scalamando/tree-sitter-bruno"
+rev = "dd27fe0eff8e7f8184dfc91e426b886dc8369c46"

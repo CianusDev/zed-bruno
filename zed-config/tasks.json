@@ -1,0 +1,35 @@
+[
+  {
+    "label": "Bruno: run request",
+    "command": "bruno-zed",
+    "args": ["run", "$ZED_FILE"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "Bruno: run folder",
+    "command": "bruno-zed",
+    "args": ["folder", "$ZED_FILE"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "Bruno: run collection",
+    "command": "bruno-zed",
+    "args": ["collection", "$ZED_FILE"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "Bruno: choose environment",
+    "command": "bruno-zed",
+    "args": ["env", "$ZED_FILE"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success"
+  }
+]

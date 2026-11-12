@@ -1,0 +1,228 @@
+#!/usr/bin/env node
+// bruno-zed — run Bruno requests (.bru or OpenCollection .yml) from Zed tasks.
+//
+// Usage:
+//   bruno-zed run <file>          run a single request
+//   bruno-zed folder <path>       run every request of the folder (recursive)
+//   bruno-zed collection <path>   run the whole collection containing <path>
+//   bruno-zed env <path>          choose the environment used for this collection
+//   bruno-zed last                print the last response again
+//
+// Environment selection (first match wins):
+//   1. BRUNO_ENV environment variable ("none" disables it)
+//   2. choice saved with `bruno-zed env`
+//   3. nothing -> bru uses the collection default (presets.defaultEnvironment)
+//
+// Extra args after `--` are passed to `bru run` as is.
+
+'use strict';
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const readline = require('readline');
+const { spawnSync } = require('child_process');
+
+const STATE_DIR = path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'bruno-zed');
+const STATE_FILE = path.join(STATE_DIR, 'envs.json');
+const LAST_RESPONSE = path.join(STATE_DIR, 'last-response.json');
+const LAST_REPORT = path.join(STATE_DIR, 'last-report.json');
+
+const tty = process.stdout.isTTY;
+const c = (code) => (s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : String(s));
+const bold = c('1');
+const dim = c('2');
+const red = c('31');
+const green = c('32');
+const yellow = c('33');
+const cyan = c('36');
+
+function die(msg, code = 1) {
+  console.error(red(`✗ ${msg}`));
+  process.exit(code);
+}
+
+function findCollectionRoot(start) {
+  let dir = fs.existsSync(start) && fs.statSync(start).isDirectory() ? start : path.dirname(start);
+  dir = path.resolve(dir);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, 'opencollection.yml'))) return { root: dir, format: 'yml' };
+    if (fs.existsSync(path.join(dir, 'bruno.json'))) return { root: dir, format: 'bru' };
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function readState() {
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeState(state) {
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+}
+
+function listEnvironments(root, format) {
+  const dir = path.join(root, 'environments');
+  if (!fs.existsSync(dir)) return [];
+  const ext = format === 'yml' ? ['.yml', '.yaml'] : ['.bru'];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => ext.includes(path.extname(f)))
+    .map((f) => path.basename(f, path.extname(f)))
+    .sort();
+}
+
+function resolveEnv(root) {
+  const fromVar = process.env.BRUNO_ENV;
+  if (fromVar) return fromVar === 'none' ? null : fromVar;
+  return readState()[root] || null;
+}
+
+function prettyBody(data) {
+  if (data === undefined || data === null || data === '') return dim('(empty body)');
+  if (typeof data === 'object') return JSON.stringify(data, null, 2);
+  const s = String(data);
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
+  }
+}
+
+function printResponses(reportFile) {
+  let report;
+  try {
+    report = JSON.parse(fs.readFileSync(reportFile, 'utf8'));
+  } catch {
+    return;
+  }
+  const results = (Array.isArray(report) ? report : [report]).flatMap((it) => it.results || []);
+  const showHeaders = process.env.BRUNO_ZED_HEADERS === '1';
+  let last = null;
+
+  for (const r of results) {
+    const req = r.request || {};
+    const res = r.response || {};
+    console.log('');
+    console.log(bold(cyan(`━━ ${r.name || r.path} `)) + dim(r.path || ''));
+    console.log(`${bold(req.method || '?')} ${req.url || ''}`);
+    if (r.error) console.log(red(`Error: ${r.error}`));
+    if (typeof res.status === 'number') {
+      const col = res.status >= 400 ? red : res.status >= 300 ? yellow : green;
+      console.log(`${col(bold(`${res.status} ${res.statusText || ''}`))}  ${dim(`${res.responseTime ?? '?'} ms · ${res.size ?? '?'} B`)}`);
+    }
+    if (showHeaders && res.headers) {
+      for (const [k, v] of Object.entries(res.headers)) console.log(`${dim(k + ':')} ${v}`);
+    }
+    if ('data' in res) console.log(prettyBody(res.data));
+    last = { name: r.name, path: r.path, request: req, response: res };
+  }
+
+  if (last) {
+    fs.writeFileSync(LAST_RESPONSE, JSON.stringify(last, null, 2));
+    console.log('');
+    console.log(dim(`Last response saved to ${LAST_RESPONSE}`));
+  }
+}
+
+function runBru(target, { recursive }, extra) {
+  const found = findCollectionRoot(target);
+  if (!found) {
+    die(`No Bruno collection found for ${target}\n  (looked for bruno.json or opencollection.yml in parent folders)`);
+  }
+  const { root } = found;
+  const env = resolveEnv(root);
+
+  const args = ['run', path.resolve(target)];
+  if (recursive) args.push('-r');
+  if (env && !extra.includes('--env')) args.push('--env', env);
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  try { fs.unlinkSync(LAST_REPORT); } catch {}
+  args.push('--reporter-json', LAST_REPORT, ...extra);
+
+  console.log(dim(`collection: ${root}`));
+  console.log(dim(`environment: ${env || '(collection default)'}`));
+  console.log(dim(`$ bru ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`));
+  console.log('');
+
+  const r = spawnSync('bru', args, { cwd: root, stdio: 'inherit' });
+  if (r.error) {
+    if (r.error.code === 'ENOENT') die('`bru` not found. Install it with: npm i -g @usebruno/cli');
+    die(r.error.message);
+  }
+  if (process.env.BRUNO_ZED_BODY !== '0') printResponses(LAST_REPORT);
+  process.exit(r.status ?? 1);
+}
+
+async function chooseEnv(target) {
+  const found = findCollectionRoot(target);
+  if (!found) die(`No Bruno collection found for ${target}`);
+  const { root, format } = found;
+  const envs = listEnvironments(root, format);
+  const state = readState();
+  const current = state[root] || null;
+
+  console.log(bold(`Collection: ${root}`));
+  if (!envs.length) {
+    console.log(yellow('No environment in environments/.'));
+    return;
+  }
+  const options = ['(none — collection default)', ...envs];
+  options.forEach((o, i) => {
+    const active = (i === 0 && !current) || o === current;
+    console.log(`  ${active ? green('●') : ' '} ${bold(i)}) ${o}`);
+  });
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((res) => rl.question('\nNumber (Enter = keep): ', res));
+  rl.close();
+  if (answer.trim() === '') return console.log(dim('Unchanged.'));
+  const idx = Number(answer);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= options.length) die('Invalid choice');
+  if (idx === 0) delete state[root];
+  else state[root] = options[idx];
+  writeState(state);
+  console.log(green(`✓ Environment: ${idx === 0 ? '(collection default)' : options[idx]}`));
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const sep = argv.indexOf('--');
+  const extra = sep >= 0 ? argv.slice(sep + 1) : [];
+  const [cmd, target] = sep >= 0 ? argv.slice(0, sep) : argv;
+
+  switch (cmd) {
+    case 'run':
+      if (!target) die('Usage: bruno-zed run <file>');
+      if (!fs.existsSync(target)) die(`File not found: ${target}`);
+      return runBru(target, { recursive: false }, extra);
+    case 'folder': {
+      if (!target) die('Usage: bruno-zed folder <path>');
+      const dir = fs.statSync(target).isDirectory() ? target : path.dirname(target);
+      return runBru(dir, { recursive: true }, extra);
+    }
+    case 'collection': {
+      if (!target) die('Usage: bruno-zed collection <path>');
+      const found = findCollectionRoot(target);
+      if (!found) die(`No Bruno collection found for ${target}`);
+      return runBru(found.root, { recursive: true }, extra);
+    }
+    case 'env':
+      return chooseEnv(target || process.cwd());
+    case 'last':
+      if (!fs.existsSync(LAST_RESPONSE)) die('No response yet.');
+      console.log(fs.readFileSync(LAST_RESPONSE, 'utf8'));
+      return;
+    default:
+      console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 16).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+      process.exit(cmd ? 1 : 0);
+  }
+}
+
+main();
